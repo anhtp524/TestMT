@@ -20,7 +20,7 @@ SRC = Field(tokenize=tokenize_en, init_token='<sos>', eos_token='<eos>', lower=T
 TRG = Field(tokenize=tokenize_fr, init_token='<sos>', eos_token='<eos>', lower=True)
 
 # Tải dữ liệu từ bộ dữ liệu Multi30k
-train_data, valid_data, test_data = Multi30k.splits(exts=('.en', '.de'), fields=(SRC, TRG), root='data')
+train_data, valid_data, test_data = Multi30k.splits(exts=('.en', '.fr'), fields=(SRC, TRG), root='data')
 
 # Xây dựng từ điển và chỉ số hóa dữ liệu
 SRC.build_vocab(train_data, min_freq=2)
@@ -46,7 +46,7 @@ class EncoderRNN(nn.Module):
         self.gru = nn.GRU(hidden_size, hidden_size)
 
     def forward(self, input, hidden):
-        embedded = self.embedding(input).view(1, 1, -1)
+        embedded = self.embedding(input).view(1, 128, -1)
         output = embedded
         output, hidden = self.gru(output, hidden)
         return output, hidden
@@ -73,9 +73,10 @@ class DecoderRNN(nn.Module):
 
     def initHidden(self):
         return torch.zeros(1, 1, self.hidden_size, device=device)
+
 class Seq2Seq(nn.Module):
-    def init(self, encoder, decoder, device):
-        super(Seq2Seq, self).init()
+    def __init__(self, encoder, decoder, device):
+        super(Seq2Seq, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.device = device
@@ -87,8 +88,8 @@ class Seq2Seq(nn.Module):
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(self.device)
         hidden = self.encoder.initHidden()
         for i in range(max_len):
-            output, hidden = self.encoder(src[i], hidden)
-            output, hidden = self.decoder(trg[i], hidden)
+            output, hidden = self.encoder.forward(src[i], hidden)
+            output, hidden = self.decoder.forward(trg[i], hidden)
             outputs[i] = output
         return outputs
 
@@ -101,11 +102,11 @@ class Seq2Seq(nn.Module):
             src_len = torch.LongTensor([len(src_indexes)])
             hidden = self.encoder.initHidden()
             for i in range(len(tokens)):
-                output, hidden = self.encoder(src_tensor[i], hidden)
+                output, hidden = self.encoder.forward(src_tensor[i], hidden)
             trg_indexes = [trg_field.vocab.stoi['<sos>']]
             for i in range(max_len):
                 trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(self.device)
-                output, hidden = self.decoder(trg_tensor, hidden)
+                output, hidden = self.decoder.forward(trg_tensor, hidden)
                 pred_token = output.argmax(dim=1).item()
                 trg_indexes.append(pred_token)
                 if pred_token == trg_field.vocab.stoi['<eos>']:
@@ -130,7 +131,7 @@ for epoch in range(N_EPOCHS):
         src = batch.src
         trg = batch.trg
         optimizer.zero_grad()
-        output = model(src, trg)
+        output = model.forward(src, trg)
         output = output[1:].view(-1, output.shape[-1])
 
 sentence = "I love you"
